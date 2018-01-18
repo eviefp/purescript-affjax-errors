@@ -39,12 +39,11 @@ mapNotFound sc@(StatusCode n)
 statusOk :: StatusCode -> Boolean
 statusOk (StatusCode n) = n >= 200 && n < 300
 
-decodeWithError :: forall a i o.
+decodeWithError :: forall a i.
                    DecodeJson a
-                => RowCons "parseError" Unit i o
                 => (StatusCode -> Variant i)
                 -> AffjaxResponse String
-                -> Either (Variant o) a
+                -> Either (Variant (parseError :: Unit | i)) a
 decodeWithError errorMapper response
   | statusOk response.status = lmap (expand <<< const parseError) (decodeJson <=< jsonParser $ response.response)
   | otherwise                = Left <<< expand <<< errorMapper $ response.status
