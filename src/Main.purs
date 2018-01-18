@@ -1,7 +1,5 @@
 module Main where
 
-import Prelude
-
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Data.Argonaut (decodeJson)
@@ -13,6 +11,7 @@ import Data.Symbol (SProxy(..))
 import Data.Variant (Variant, expand, inj)
 import Network.HTTP.Affjax (AffjaxResponse)
 import Network.HTTP.StatusCode (StatusCode(..))
+import Prelude (Unit, otherwise, unit, ($), (&&), (<), (<<<), (<=<), (==), (>=))
 
 class MapStatusCode a where
   mapStatusCode  :: StatusCode -> a
@@ -43,14 +42,17 @@ statusOk (StatusCode n) = n >= 200 && n < 300
 -- | Feels like it's wrong that we can't, but the non-Variant version suffers from the same problem.
 -- | ... although, it's not as explicitly layed out as here. You don't ostentatively throw a constructor
 -- | you're never going to use in the type declaration of the map function.
-decodeWithError :: forall a i.
+decodeWithError :: forall a i p o.
                    DecodeJson a
-                => (StatusCode -> Variant (parseError :: Unit | i))
+                => Union i p o
+                => Union p i o
+                => (StatusCode -> Variant i)
+                -> (String -> Variant p)
                 -> AffjaxResponse String
-                -> Either (Variant (parseError :: Unit | i)) a
-decodeWithError errorMapper response
-  | statusOk response.status = lmap (expand <<< const parseError) (decodeJson <=< jsonParser $ response.response)
-  | otherwise                = Left <<< errorMapper $ response.status
+                -> Either (Variant o) a
+decodeWithError errorMapper peMapper response
+  | statusOk response.status = lmap (expand <<< peMapper) (decodeJson <=< jsonParser $ response.response)
+  | otherwise                = Left <<< expand <<< errorMapper $ response.status
 
 main :: forall e. Eff (console :: CONSOLE | e) Unit
 main = do
