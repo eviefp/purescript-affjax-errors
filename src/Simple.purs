@@ -7,7 +7,7 @@ import Data.Bifunctor (lmap)
 import Data.Either (Either(Left))
 import Network.HTTP.Affjax (AffjaxResponse)
 import Network.HTTP.StatusCode (StatusCode(..))
-import Prelude (otherwise, ($), (&&), (<), (<<<), (<=<), (==), (>=))
+import Prelude (otherwise, ($), (&&), (<), (<=<), (>=))
 
 class MapStatusCode a where
   mapStatusCode  :: StatusCode -> a

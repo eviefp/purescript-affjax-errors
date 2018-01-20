@@ -7,19 +7,17 @@ import Data.Argonaut.Decode.Class (class DecodeJson)
 import Data.Argonaut.Parser (jsonParser)
 import Data.Bifunctor (lmap)
 import Data.Either (Either(Left))
-import Data.Symbol (SProxy(..))
-import Data.Variant (Variant, expand, inj)
+import Data.Variant (Variant, expand)
 import Network.HTTP.Affjax (AffjaxResponse)
 import Network.HTTP.StatusCode (StatusCode(..))
-import Prelude (Unit, otherwise, unit, ($), (&&), (<), (<<<), (<=<), (==), (>=))
+import Prelude (otherwise, ($), (&&), (<), (<<<), (<=<), (>=))
 
 statusOk :: StatusCode -> Boolean
 statusOk (StatusCode n) = n >= 200 && n < 300
 
--- | We can't use (StatusCode -> Variant i) because reasons.
--- | Feels like it's wrong that we can't, but the non-Variant version suffers from the same problem.
--- | ... although, it's not as explicitly layed out as here. You don't ostentatively throw a constructor
--- | you're never going to use in the type declaration of the map function.
+-- | We need ways to map both possible errors: status code and parse errors. Each of these map
+-- | to a diferent Variant type, so we also need to make sure the resulting Variant does
+-- | not have duplicates, which is why we need two `Union` constraints.
 decodeWithError :: forall a i p o.
                    DecodeJson a
                 => Union i p o
