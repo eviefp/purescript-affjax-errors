@@ -63,7 +63,6 @@ getFilePlus s = do
 
 -- | A few helpers to make things easier.
 _unAuthorized = SProxy :: SProxy "unAuthorized"
-_notFound     = SProxy :: SProxy "notFound"
 _serverError  = SProxy :: SProxy "serverError"
 _parseError   = SProxy :: SProxy "parseError"
 
@@ -96,6 +95,9 @@ getFile' s = do
     , method = Left GET
     }
   pure $ V.decodeWithError mapBasicError (const parseError) res
+
+-- | And adding NotFound...
+_notFound     = SProxy :: SProxy "notFound"
 
 -- | Same with `notFound` on top.
 type SomeError' =

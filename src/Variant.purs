@@ -1,4 +1,6 @@
-module Variant where
+module Variant
+  ( decodeWithError
+  ) where
 
 import Data.Argonaut (decodeJson)
 import Data.Argonaut.Decode.Class (class DecodeJson)
@@ -10,8 +12,6 @@ import Data.Variant (Variant, expand, inj)
 import Network.HTTP.Affjax (AffjaxResponse)
 import Network.HTTP.StatusCode (StatusCode(..))
 import Prelude (Unit, otherwise, unit, ($), (&&), (<), (<<<), (<=<), (==), (>=))
-
-
 
 statusOk :: StatusCode -> Boolean
 statusOk (StatusCode n) = n >= 200 && n < 300
