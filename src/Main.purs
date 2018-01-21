@@ -6,13 +6,13 @@ import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Data.Either (Either(Left, Right))
 import Data.HTTP.Method (Method(..))
-import Data.Variant (Variant, case_, expand, inj, on)
 import Data.Symbol (SProxy(..))
+import Data.Variant (Variant, case_, expand, inj, on)
 import Network.HTTP.Affjax (AJAX, affjax, defaultRequest)
 import Network.HTTP.StatusCode (StatusCode(..))
 import Prelude (Unit, bind, const, discard, otherwise, pure, unit, (#), (<>), ($), (==), (<<<))
 import Simple as S
-import Variant as V
+import Variant (runAffjaxWithError)
 
 ------------------------------------------------------------------------------------------
 -- Simple version
@@ -66,62 +66,59 @@ _unAuthorized = SProxy :: SProxy "unAuthorized"
 _serverError  = SProxy :: SProxy "serverError"
 _parseError   = SProxy :: SProxy "parseError"
 
+-- | Parse error could be more complex than this. We could store the parse error in a String,
+-- | or provide multiple "constructors". We'll keep it simple for this example.
+type ParseError = (parseError ∷ Unit)
+
 -- | The type is extremely similar to `BasicError`.
-type BasicError' =
+type BasicError' e =
   Variant
     ( unAuthorized :: Unit
     , serverError  :: Unit
-    , parseError   :: Unit
+    | e
     )
 
 -- | We get to define as many as these as we need, in case some of the API's we use are
 -- | (ab)using HTTP response codes to signal different kinds of errors.
-mapBasicError :: StatusCode -> Variant (unAuthorized :: Unit, serverError :: Unit)
+mapBasicError :: StatusCode -> BasicError' ()
 mapBasicError (StatusCode n)
   | n == 401  = inj _unAuthorized unit
   | otherwise = inj _serverError  unit
 
 -- | Helper for defining a parse error.
-parseError :: Variant (parseError :: Unit)
+parseError :: Variant ParseError
 parseError = inj _parseError unit
 
 -- | This is slightly more difficult because we need to pass the two helper functions
 -- | to `decodeWithError`, however we gain some power: we can treat error codes
 -- | differently when needed.
-getFile' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either BasicError' String)
-getFile' s = do
-  res <- affjax $ defaultRequest
+getFile' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either (BasicError' ParseError) String)
+getFile' s =
+  runAffjaxWithError mapBasicError (const parseError) $ defaultRequest
     { url = "simpleAPI/" <> s
     , method = Left GET
     }
-  pure $ V.decodeWithError mapBasicError (const parseError) res
 
 -- | And adding NotFound...
 _notFound     = SProxy :: SProxy "notFound"
 
 -- | Same with `notFound` on top.
-type SomeError' =
-  Variant
-    ( unAuthorized :: Unit
-    , serverError  :: Unit
-    , notFound     :: Unit
-    , parseError   :: Unit
-    )
+type SomeError' e = BasicError' (notFound ∷ Unit | e)
+
 -- | We need a map for this as well, and we can re-use the "sub"-map just like we did
 -- | with the class instance.
-mapNotFound :: StatusCode -> Variant (unAuthorized :: Unit, serverError :: Unit, notFound :: Unit)
+mapNotFound :: StatusCode -> SomeError' ()
 mapNotFound sc@(StatusCode n)
   | n == 404  = inj _notFound unit
   | otherwise = expand $ mapBasicError sc
 
 -- | The new endpoint in Variant format.
-getFilePlus' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either SomeError' String)
-getFilePlus' s = do
-  res <- affjax $ defaultRequest
+getFilePlus' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either (SomeError' ParseError) String)
+getFilePlus' s =
+  runAffjaxWithError mapNotFound (const parseError) $ defaultRequest
     { url = s
     , method = Left GET
     }
-  pure $ V.decodeWithError mapNotFound (const parseError) res
 
 main :: forall e. Eff (ajax :: AJAX, console :: CONSOLE | e) Unit
 main = do

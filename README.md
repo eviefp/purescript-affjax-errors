@@ -137,14 +137,15 @@ go check it out. It has an excellent readme.
 If we use `Variant` for our error type, then our `decodeWithError` function becomes:
 
 ```purescript
-decodeWithError :: forall a i p o.
-                   DecodeJson a
-                => Union i p o
-                => Union p i o
-                => (StatusCode -> Variant i)
-                -> (String -> Variant p)
-                -> AffjaxResponse String
-                -> Either (Variant o) a
+decodeWithError
+  :: forall a i p o
+   . DecodeJson a
+  => Union i p o
+  => Union p i o
+  => (StatusCode -> Variant i)
+  -> (String -> Variant p)
+  -> AffjaxResponse String
+  -> Either (Variant o) a
 decodeWithError errorMapper peMapper response
   | statusOk response.status = lmap (expand <<< peMapper) (decodeJson <=< jsonParser $ response.response)
   | otherwise                = Left <<< expand <<< errorMapper $ response.status
@@ -155,6 +156,27 @@ need something to map fail status codes to a Variant type, and something to map 
 a different Variant type. This is an important note, the two Variants need to have no row in common,
 which is expressed by the double `Union` constraint.
 
+We can go one step further and create an even simpler-to-use helper:
+
+```purescript
+runAffjaxWithError
+  :: forall a b i p o eff
+   . Requestable a
+  => DecodeJson b
+  => Union i p o
+  => Union p i o
+  => (StatusCode → Variant i)
+  -> (String → Variant p)
+  -> AffjaxRequest a
+  -> Aff (ajax ∷ AJAX | eff) (Either (Variant o) b)
+runAffjaxWithError statusCodeMap parseErrorMap req = do
+  res <- affjax req
+  pure <<< decodeWithError statusCodeMap parseErrorMap $ res
+```
+
+This is similar to `decodeWithError` except we are going a bit further and start from the `Request`
+itself.
+
 We can now create a new `BasicError'` type as a `Variant`, and write out the two required functions:
 `mapBasicError` and `parseError`:
 
@@ -163,14 +185,14 @@ _unAuthorized = SProxy :: SProxy "unAuthorized"
 _serverError  = SProxy :: SProxy "serverError"
 _parseError   = SProxy :: SProxy "parseError"
 
-type BasicError' =
+type BasicError' e =
   Variant
     ( unAuthorized :: Unit
     , serverError  :: Unit
-    , parseError   :: Unit
+    | e
     )
 
-mapBasicError :: StatusCode -> Variant (unAuthorized :: Unit, serverError :: Unit)
+mapBasicError :: StatusCode -> BasicError' ()
 mapBasicError (StatusCode n)
   | n == 401  = inj _unAuthorized unit
   | otherwise = inj _serverError  unit
@@ -182,13 +204,12 @@ parseError = inj _parseError unit
 We can now create the same `getFile'` API method, but using the `Variant` alternative:
 
 ```purescript
-getFile' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either BasicError' String)
-getFile' s = do
-  res <- affjax $ defaultRequest
+getFile' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either (BasicError' ParseError) String)
+getFile' s =
+  runAffjaxWithError mapBasicError (const parseError) $ defaultRequest
     { url = "simpleAPI/" <> s
     , method = Left GET
     }
-  pure $ decodeWithError mapBasicError (const parseError) res
 ```
 
 As before, adding the `NotFound` row is trivial:
@@ -196,26 +217,19 @@ As before, adding the `NotFound` row is trivial:
 ```purescript
 _notFound     = SProxy :: SProxy "notFound"
 
-type SomeError' =
-  Variant
-    ( unAuthorized :: Unit
-    , serverError  :: Unit
-    , notFound     :: Unit
-    , parseError   :: Unit
-    )
+type SomeError' e = BasicError' (notFound :: Unit | e)
 
-mapNotFound :: StatusCode -> Variant (unAuthorized :: Unit, serverError :: Unit, notFound :: Unit)
+mapNotFound :: StatusCode -> SomeError' ()
 mapNotFound sc@(StatusCode n)
   | n == 404  = inj _notFound unit
   | otherwise = expand $ mapBasicError sc
 
-getFilePlus' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either SomeError' String)
-getFilePlus' s = do
-  res <- affjax $ defaultRequest
+getFilePlus' :: forall eff. String -> Aff (ajax :: AJAX | eff) (Either (SomeError' ParseError) String)
+getFilePlus' s =
+  runAffjaxWithError mapNotFound (const parseError) $ defaultRequest
     { url = s
     , method = Left GET
     }
-  pure $ decodeWithError mapNotFound (const parseError) res
 ```
 
 And the best part, matching the error is not layered:
